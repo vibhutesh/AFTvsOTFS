@@ -12,7 +12,7 @@ N = 8;
 % number of subcarriers
 M = 8;
 % size of constellation
-M_mod = 16;
+M_mod = 4;
 M_bits = log2(M_mod);
 % average energy per data symbol
 eng_sqrt = (M_mod==2)+(M_mod~=2)*sqrt((M_mod-1)/6*(2^2));
@@ -44,7 +44,7 @@ for iesn0 = 0:length(SNR_dB)
         %% random input bits generation%%%%%
         data_info_bit = randi([0,1],N_bits_perfram,1);
         data_temp = bi2de(reshape(data_info_bit,N_syms_perfram,M_bits));
-        x = qammod(data_temp,M_mod,0 ,'gray');
+        x = qammod(data_temp,M_mod,'gray');
         x = reshape(x,N,M);
         %% OTFS channel generation%%%%
         [taps,delay_taps,Doppler_taps,chan_coef] = OTFS_channel_gen(N,M);
@@ -56,48 +56,72 @@ for iesn0 = 0:length(SNR_dB)
         %% Modulation
         if enable_OTFS
             % OTFS modulation%%%%
-            s_OTFS = OTFS_modulation(N,M,x);
-        elseif enable_AFT
+            s_OTFS = OTFS_modulation(N,M,x);       
+        end
+        if enable_AFT
             % AFT modulation%%%%
             s_AFT = AFT_modulation(N_AFT,Num_OFDM_sym, N_CP, c1, c2, x);
         end
         %% Calculate the Signal Energy
         sig_energy = 0;
         if iesn0 == 0
-            sig_energy = OTFS_Sig_energy(N,M,taps,delay_taps,Doppler_taps,chan_coef,s_OTFS);
-            sig_energy_OTFS = sig_energy_OTFS + sig_energy;
-            % AFT
-            sig_energy = AFT_Sig_energy(N_AFT, Num_OFDM_sym, taps, delay_taps, Doppler_taps, chan_coef,s_AFT);
-            sig_energy_AFT = sig_energy_AFT + sig_energy;
+            if enable_OTFS
+                sig_energy = OTFS_Sig_energy(N,M,taps,delay_taps,Doppler_taps,chan_coef,s_OTFS);
+                sig_energy_OTFS = sig_energy_OTFS + sig_energy;
+            end
+            if enable_AFT
+                % AFT
+                sig_energy = AFT_Sig_energy(N_AFT, Num_OFDM_sym, taps, delay_taps, Doppler_taps, chan_coef,s_AFT);
+                sig_energy_AFT = sig_energy_AFT + sig_energy;
+            end
             continue;
         end
         %% channel output%%%%%
-        r_OTFS = OTFS_channel_output(N,M,taps,delay_taps,Doppler_taps,chan_coef,sigma_2_OTFS(iesn0),s_OTFS);
-        % AFT
-        r_AFT = AFT_channel_output(N_AFT, Num_OFDM_sym, taps, delay_taps, Doppler_taps, chan_coef,sigma_2_AFT(iesn0),s_AFT); % OTFS
+        if enable_OTFS
+            [r_OTFS, H_OTFS_eq] = OTFS_channel_output(N,M,taps,delay_taps,Doppler_taps,chan_coef,sigma_2_OTFS(iesn0),s_OTFS);
+        end
+        if enable_AFT
+            % AFT
+            r_AFT = AFT_channel_output(N_AFT, Num_OFDM_sym, taps, delay_taps, Doppler_taps, chan_coef,sigma_2_AFT(iesn0),s_AFT); % OTFS
+        end
         
         
         %% OTFS demodulation%%%%
-        y_OTFS = OTFS_demodulation(N,M,r_OTFS);
-        y_AFT = AFT_demodulation(N_AFT,Num_OFDM_sym, c0, c1, c2,r_AFT);
+        if enable_OTFS
+            % MMSE
+            r_OTFS = H_OTFS_eq'*(H_OTFS_eq*H_OTFS_eq' +sigma_2_OTFS/sig_energy_OTFS_sqrt^2*eye(M*N))^(-1)*r_OTFS;
+            y_OTFS = OTFS_demodulation(N,M,r_OTFS);
+        end
+        if enable_AFT
+            y_AFT = AFT_demodulation(N_AFT,Num_OFDM_sym, c0, c1, c2,r_AFT);
+        end
+        
         
         %% message passing detector%%%%
-        x_est_OTFS = OTFS_mp_detector(N,M,M_mod,taps,delay_taps,Doppler_taps,chan_coef,sigma_2_OTFS(iesn0),y_OTFS);
-        x_est_AFT = AFT_mp_detector(N_AFT, Num_OFDM_sym, c0, c1, c2,taps,delay_taps,Doppler_taps,chan_coef, y_AFT);
+        if enable_OTFS
+            x_est_OTFS = OTFS_mp_detector(N,M,M_mod,taps,delay_taps,Doppler_taps,chan_coef,sigma_2_OTFS(iesn0),y_OTFS);
+        end
+        if enable_AFT
+            x_est_AFT = AFT_mp_detector(N_AFT, Num_OFDM_sym, c0, c1, c2,taps,delay_taps,Doppler_taps,chan_coef, y_AFT);
+        end
         %x_est_OTFS = y_OTFS;
         %x_est_AFT  = y_AFT;
         %% output bits and errors count%%%%%
-        % OTFS
-        data_demapping = qamdemod(x_est_OTFS,M_mod,0 ,'gray');
-        data_info_est = reshape(de2bi(data_demapping,M_bits),N_bits_perfram,1);
-        errors = sum(xor(data_info_est,data_info_bit));
-        err_ber_OTFS(iesn0) = errors + err_ber_OTFS(iesn0);
-        % AFT
-        x_est_AFT_serial           = reshape(transpose(x_est_AFT) ,[1,size(x_est_AFT,1)*size(x_est_AFT,2)]);
-        data_demapping = qamdemod(x_est_AFT_serial, M_mod, 0,'gray');
-        data_info_est = reshape(de2bi(data_demapping,M_bits),N_bits_perfram,1);
-        errors = sum(xor(data_info_est,data_info_bit));
-        err_ber_AFT(iesn0) = errors + err_ber_AFT(iesn0);
+        if enable_OTFS
+            % OTFS
+            data_demapping = qamdemod(x_est_OTFS,M_mod,'gray');
+            data_info_est = reshape(de2bi(data_demapping,M_bits),N_bits_perfram,1);
+            errors = sum(xor(data_info_est,data_info_bit));
+            err_ber_OTFS(iesn0) = errors + err_ber_OTFS(iesn0);
+        end
+        if enable_AFT
+            % AFT
+            x_est_AFT_serial           = reshape(transpose(x_est_AFT) ,[1,size(x_est_AFT,1)*size(x_est_AFT,2)]);
+            data_demapping = qamdemod(x_est_AFT_serial, M_mod,'gray');
+            data_info_est = reshape(de2bi(data_demapping,M_bits),N_bits_perfram,1);
+            errors = sum(xor(data_info_est,data_info_bit));
+            err_ber_AFT(iesn0) = errors + err_ber_AFT(iesn0);
+        end
         if mod(ifram, 100) == 0
             ifram
         end
@@ -109,13 +133,15 @@ for iesn0 = 0:length(SNR_dB)
         sigma_2_AFT = abs(sig_energy_AFT_sqrt*noise_var_sqrt).^2;
     end
 end
-err_ber_fram_OTFS = err_ber_OTFS/N_bits_perfram./N_fram
-semilogy(SNR_dB, err_ber_fram_OTFS,'-*','LineWidth',2);
-title(sprintf('OTFS vs AFT'))
-ylabel('BER'); xlabel('SNR in dB');grid on
-
-hold on
-err_ber_fram_AFT = err_ber_AFT/N_bits_perfram./N_fram
-semilogy(SNR_dB, err_ber_fram_AFT,'-*','LineWidth',2);
-
+if enable_OTFS
+    err_ber_fram_OTFS = err_ber_OTFS/N_bits_perfram./N_fram
+    semilogy(SNR_dB, err_ber_fram_OTFS,'-*','LineWidth',2);
+    title(sprintf('OTFS vs AFT'))
+    ylabel('BER'); xlabel('SNR in dB');grid on
+    hold on
+end
+if enable_AFT
+    err_ber_fram_AFT = err_ber_AFT/N_bits_perfram./N_fram
+    semilogy(SNR_dB, err_ber_fram_AFT,'-*','LineWidth',2);
+end
 toc

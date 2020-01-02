@@ -8,11 +8,11 @@ enable_AFT = true;
 enable_OTFS = true;
 %% OTFS parameters%%%%%%%%%%
 % number of symbol
-N = 8;
+N = 32;
 % number of subcarriers
-M = 8;
+M = 32;
 % size of constellation
-M_mod = 4;
+M_mod = 16;
 M_bits = log2(M_mod);
 % average energy per data symbol
 eng_sqrt = (M_mod==2)+(M_mod~=2)*sqrt((M_mod-1)/6*(2^2));
@@ -44,7 +44,7 @@ for iesn0 = 0:length(SNR_dB)
         %% random input bits generation%%%%%
         data_info_bit = randi([0,1],N_bits_perfram,1);
         data_temp = bi2de(reshape(data_info_bit,N_syms_perfram,M_bits));
-        x = qammod(data_temp,M_mod,0 ,'gray');
+        x = qammod(data_temp,M_mod,'gray');
         x = reshape(x,N,M);
         %% OTFS channel generation%%%%
         [taps,delay_taps,Doppler_taps,chan_coef] = OTFS_channel_gen(N,M);
@@ -56,7 +56,7 @@ for iesn0 = 0:length(SNR_dB)
         %% Modulation
         if enable_OTFS
             % OTFS modulation%%%%
-            s_OTFS = OTFS_modulation(N,M,x);
+            s_OTFS = OTFS_modulation(N,M,x);       
         end
         if enable_AFT
             % AFT modulation%%%%
@@ -78,7 +78,7 @@ for iesn0 = 0:length(SNR_dB)
         end
         %% channel output%%%%%
         if enable_OTFS
-            r_OTFS = OTFS_channel_output(N,M,taps,delay_taps,Doppler_taps,chan_coef,sigma_2_OTFS(iesn0),s_OTFS);
+            [r_OTFS, H_OTFS_eq] = OTFS_channel_output(N,M,taps,delay_taps,Doppler_taps,chan_coef,sigma_2_OTFS(iesn0),s_OTFS);
         end
         if enable_AFT
             % AFT
@@ -88,6 +88,8 @@ for iesn0 = 0:length(SNR_dB)
         
         %% OTFS demodulation%%%%
         if enable_OTFS
+            % MMSE
+            r_OTFS = H_OTFS_eq'*(H_OTFS_eq*H_OTFS_eq' +sigma_2_OTFS(iesn0)/sig_energy_OTFS_sqrt^2*eye(M*N))^(-1)*r_OTFS;
             y_OTFS = OTFS_demodulation(N,M,r_OTFS);
         end
         if enable_AFT
@@ -97,7 +99,8 @@ for iesn0 = 0:length(SNR_dB)
         
         %% message passing detector%%%%
         if enable_OTFS
-            x_est_OTFS = OTFS_mp_detector(N,M,M_mod,taps,delay_taps,Doppler_taps,chan_coef,sigma_2_OTFS(iesn0),y_OTFS);
+            %x_est_OTFS = OTFS_mp_detector(N,M,M_mod,taps,delay_taps,Doppler_taps,chan_coef,sigma_2_OTFS(iesn0),y_OTFS);
+            x_est_OTFS = y_OTFS;
         end
         if enable_AFT
             x_est_AFT = AFT_mp_detector(N_AFT, Num_OFDM_sym, c0, c1, c2,taps,delay_taps,Doppler_taps,chan_coef, y_AFT);
@@ -107,7 +110,7 @@ for iesn0 = 0:length(SNR_dB)
         %% output bits and errors count%%%%%
         if enable_OTFS
             % OTFS
-            data_demapping = qamdemod(x_est_OTFS,M_mod,0 ,'gray');
+            data_demapping = qamdemod(x_est_OTFS,M_mod,'gray');
             data_info_est = reshape(de2bi(data_demapping,M_bits),N_bits_perfram,1);
             errors = sum(xor(data_info_est,data_info_bit));
             err_ber_OTFS(iesn0) = errors + err_ber_OTFS(iesn0);
@@ -115,7 +118,7 @@ for iesn0 = 0:length(SNR_dB)
         if enable_AFT
             % AFT
             x_est_AFT_serial           = reshape(transpose(x_est_AFT) ,[1,size(x_est_AFT,1)*size(x_est_AFT,2)]);
-            data_demapping = qamdemod(x_est_AFT_serial, M_mod, 0,'gray');
+            data_demapping = qamdemod(x_est_AFT_serial, M_mod,'gray');
             data_info_est = reshape(de2bi(data_demapping,M_bits),N_bits_perfram,1);
             errors = sum(xor(data_info_est,data_info_bit));
             err_ber_AFT(iesn0) = errors + err_ber_AFT(iesn0);
