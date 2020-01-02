@@ -12,7 +12,7 @@ N = 8;
 % number of subcarriers
 M = 8;
 % size of constellation
-M_mod = 16;
+M_mod = 4;
 M_bits = log2(M_mod);
 % average energy per data symbol
 eng_sqrt = (M_mod==2)+(M_mod~=2)*sqrt((M_mod-1)/6*(2^2));
