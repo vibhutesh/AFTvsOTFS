@@ -1,18 +1,19 @@
 clc
 clear all
-close all
+
 warning('off','all')
 tic
 %% Enabling Options
 enable_AFT = true;
 enable_OTFS = true;
-enable_OTFS_LMMSE = false 
+enable_OTFS_LMMSE = true;
+SC_AFT = false;
 %% OTFS parameters
 
 % number of symbol
-N = 16
+N = 8
 % number of subcarriers
-M = 16
+M = 8
 % size of constellation
 M_mod = 4
 M_bits = log2(M_mod);
@@ -26,6 +27,8 @@ N_bits_perfram = N*M*M_bits;
 
 % number of subcarriers
 N_AFT = M;
+N_AFT_SC = N_AFT;
+SC_fac = 2;
 % number of AFT symbol
 Num_AFT_sym = N;
 % noise poser
@@ -47,7 +50,7 @@ for iesn0 = 0:length(SNR_dB)
         
         data_info_bit = randi([0,1],N_bits_perfram,1);
         data_temp = bi2de(reshape(data_info_bit,N_syms_perfram,M_bits));
-        x = qammod(data_temp,M_mod,'gray');
+        x = qammod(data_temp,M_mod,0, 'gray');
         x = reshape(x,N,M);
         %% channel generation
         
@@ -62,10 +65,14 @@ for iesn0 = 0:length(SNR_dB)
         
         if enable_OTFS
             % OTFS modulation
-            s_OTFS = OTFS_modulation(N,M,x);       
+            s_OTFS = OTFS_modulation(N,M,x);
         end
         if enable_AFT
             % AFT modulation
+            if SC_AFT
+                N_AFT = N_AFT_SC*SC_fac;
+                x = fft(x, N_AFT);
+            end
             s_AFT = AFT_modulation(N_AFT,Num_AFT_sym, N_CP, c1, c2, x);
         end
         %% Calculate the Signal Energy
@@ -86,7 +93,7 @@ for iesn0 = 0:length(SNR_dB)
         %% channel output
         
         if enable_OTFS
-            % OTFS 
+            % OTFS
             % H_OTFS_eq is the equivalent channel matrix which is used for
             % the MMSE equalizer
             [r_OTFS, H_OTFS_eq] = OTFS_channel_output(N,M,taps,delay_taps,Doppler_taps,chan_coef,sigma_2_OTFS(iesn0),s_OTFS);
@@ -122,12 +129,17 @@ for iesn0 = 0:length(SNR_dB)
         end
         if enable_AFT
             x_est_AFT = AFT_mp_detector(N_AFT, Num_AFT_sym, c0, c1, c2,taps,delay_taps,Doppler_taps,chan_coef, y_AFT);
+            if SC_AFT
+                x_est_AFT = transpose(ifft(transpose(x_est_AFT)));
+                N_AFT = N_AFT/SC_fac;
+                x_est_AFT = x_est_AFT(:, 1:N_AFT);
+            end
         end
         %% output bits and errors count
         
         if enable_OTFS
             % OTFS
-            data_demapping = qamdemod(x_est_OTFS,M_mod,'gray');
+            data_demapping = qamdemod(x_est_OTFS,M_mod,0, 'gray');
             data_info_est = reshape(de2bi(data_demapping,M_bits),N_bits_perfram,1);
             errors = sum(xor(data_info_est,data_info_bit));
             err_ber_OTFS(iesn0) = errors + err_ber_OTFS(iesn0);
@@ -135,7 +147,7 @@ for iesn0 = 0:length(SNR_dB)
         if enable_AFT
             % AFT
             x_est_AFT_serial           = reshape(transpose(x_est_AFT) ,[1,size(x_est_AFT,1)*size(x_est_AFT,2)]);
-            data_demapping = qamdemod(x_est_AFT_serial, M_mod,'gray');
+            data_demapping = qamdemod(x_est_AFT_serial, M_mod,0, 'gray');
             data_info_est = reshape(de2bi(data_demapping,M_bits),N_bits_perfram,1);
             errors = sum(xor(data_info_est,data_info_bit));
             err_ber_AFT(iesn0) = errors + err_ber_AFT(iesn0);
