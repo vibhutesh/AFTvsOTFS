@@ -4,7 +4,9 @@ N_CP = max(delay_taps);
 s_chan_mat = zeros(size(x_with_CP));
 for i = 1:Num_OFDM_sym
     for itao = 1:taps
-        s_chan_mat(i, :) = s_chan_mat(i, :)+exp(1i*2*pi*Doppler_taps(itao)*delay_taps(itao))*chan_coef(itao)*exp(-1j*2*pi ...
+        %         s_chan_mat(i, :) = s_chan_mat(i, :)+exp(1i*2*pi*Doppler_taps(itao)*delay_taps(itao))*chan_coef(itao)*exp(-1j*2*pi ...
+        %             *(-N_CP:N_AFT-1)*Doppler_taps(itao)).*circshift(x_with_CP(i, :) ,delay_taps(itao), 2);
+        s_chan_mat(i, :) = s_chan_mat(i, :)+chan_coef(itao)*exp(-1j*2*pi ...
             *(-N_CP:N_AFT-1)*Doppler_taps(itao)).*circshift(x_with_CP(i, :) ,delay_taps(itao), 2);
     end
 end

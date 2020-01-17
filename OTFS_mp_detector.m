@@ -95,7 +95,8 @@ for ite=1:n_ite
                 if int_flag==1
                     add_term1 = exp(-1i*2*pi*((ele2-1)/N));
                 end
-                eff_ele2 = mod(ele2-1+Doppler_taps(tap_no),N) + 1;
+                %eff_ele2 = mod(ele2-1+Doppler_taps(tap_no),N) + 1;
+                eff_ele2 = floor(mod(ele2-1+Doppler_taps(tap_no),N) + 1);
                 new_chan = add_term * add_term1 * chan_coef(tap_no);
                 
                 dum_eff_ele1(tap_no) = eff_ele1;

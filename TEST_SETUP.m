@@ -1,12 +1,14 @@
 clc
 clear all
+close all
 
 warning('off','all')
 tic
 %% Enabling Options
 enable_AFT = true;
 enable_OTFS = true;
-enable_OTFS_LMMSE = false;
+enable_2d_AFT = true;
+enable_OTFS_LMMSE = true;
 SC_AFT = false;
 %% OTFS parameters
 
@@ -43,6 +45,7 @@ sig_energy_AFT = 0;
 rng(1)
 N_fram = 1000;%10^4;
 err_ber_OTFS = zeros(length(SNR_dB),1);
+err_ber_2d_AFT = zeros(length(SNR_dB),1);
 err_ber_AFT = zeros(length(SNR_dB),1);
 for iesn0 = 0:length(SNR_dB)
     for ifram = 1:N_fram
@@ -60,6 +63,9 @@ for iesn0 = 0:length(SNR_dB)
         % for the moment, we assume two-tap delay channel
         if taps == 2
             [c0, c1, c2] = ComputeC0_C1_for2path(Doppler_taps, delay_taps);
+%             c0 = 0;
+%             c1 = 0;
+%             c2 = 0;
         end
         
         %% Modulation
@@ -67,6 +73,10 @@ for iesn0 = 0:length(SNR_dB)
         if enable_OTFS
             % OTFS modulation
             s_OTFS = OTFS_modulation(N,M,x);
+        end
+        if enable_2d_AFT
+            % 2d_AFT modulation
+            s_2d_AFT = AFT_2d_modulation(N,M,x, c1, c2, c1, c2);
         end
         if enable_AFT
             % AFT modulation
@@ -80,7 +90,7 @@ for iesn0 = 0:length(SNR_dB)
         
         sig_energy = 0;
         if iesn0 == 0
-            if enable_OTFS
+            if enable_OTFS | enable_2d_AFT
                 sig_energy = OTFS_Sig_energy(N,M,taps,delay_taps,Doppler_taps,chan_coef,s_OTFS);
                 sig_energy_OTFS = sig_energy_OTFS + sig_energy;
             end
@@ -99,6 +109,9 @@ for iesn0 = 0:length(SNR_dB)
             % the MMSE equalizer
             [r_OTFS, H_OTFS_eq] = OTFS_channel_output(N,M,taps,delay_taps,Doppler_taps,chan_coef,sigma_2_OTFS(iesn0),s_OTFS);
         end
+        if enable_2d_AFT
+            [r_2d_AFT, H_2d_AFT] = OTFS_channel_output(N,M,taps,delay_taps,Doppler_taps,chan_coef,sigma_2_OTFS(iesn0),s_2d_AFT);
+        end
         if enable_AFT
             % AFT
             r_AFT = AFT_channel_output(N_AFT, Num_AFT_sym, taps, delay_taps, Doppler_taps, chan_coef,sigma_2_AFT(iesn0),s_AFT); % OTFS
@@ -114,6 +127,10 @@ for iesn0 = 0:length(SNR_dB)
             end
             y_OTFS = OTFS_demodulation(N,M,r_OTFS);
         end
+        if enable_2d_AFT
+            r_2d_AFT = H_2d_AFT'*(H_2d_AFT*H_2d_AFT' +sigma_2_OTFS(iesn0)/sig_energy_OTFS_sqrt^2*eye(M*N))^(-1)*r_2d_AFT;
+            y_2d_AFT =AFT_2d_demodulation(N,M,r_2d_AFT, c1, c2, c1, c2);
+        end
         if enable_AFT
             y_AFT = AFT_demodulation(N_AFT,Num_AFT_sym, c0, c1, c2,r_AFT);
         end
@@ -127,6 +144,9 @@ for iesn0 = 0:length(SNR_dB)
             else
                 x_est_OTFS = OTFS_mp_detector(N,M,M_mod,taps,delay_taps,Doppler_taps,chan_coef,sigma_2_OTFS(iesn0),y_OTFS);
             end
+        end
+        if enable_2d_AFT
+            x_est_2d_AFT = y_2d_AFT;
         end
         if enable_AFT
             x_est_AFT = AFT_mp_detector(N_AFT, Num_AFT_sym, c0, c1, c2,taps,delay_taps,Doppler_taps,chan_coef, y_AFT);
@@ -145,6 +165,14 @@ for iesn0 = 0:length(SNR_dB)
             data_info_est = reshape(de2bi(data_demapping,M_bits),N_bits_perfram,1);
             errors = sum(xor(data_info_est,data_info_bit));
             err_ber_OTFS(iesn0) = errors + err_ber_OTFS(iesn0);
+        end
+        if enable_2d_AFT
+            % OTFS
+            %data_demapping = qamdemod(x_est_OTFS,M_mod,0, 'gray');
+            data_demapping = qamdemod(x_est_2d_AFT,M_mod,'gray');
+            data_info_est = reshape(de2bi(data_demapping,M_bits),N_bits_perfram,1);
+            errors = sum(xor(data_info_est,data_info_bit));
+            err_ber_2d_AFT(iesn0) = errors + err_ber_2d_AFT(iesn0);
         end
         if enable_AFT
             % AFT
@@ -170,16 +198,27 @@ if enable_OTFS
     err_ber_fram_OTFS = err_ber_OTFS/N_bits_perfram./N_fram
     semilogy(SNR_dB, err_ber_fram_OTFS,'-*','LineWidth',2);
     title(sprintf(['N = ' num2str(N) ', M = ' num2str(M) ', ' num2str(M_mod) 'QAM']))
+    legend('OTFS')
+    ylabel('BER'); xlabel('SNR in dB');grid on
+    hold on
+end
+if enable_2d_AFT
+    err_ber_fram_2d_AFT = err_ber_2d_AFT/N_bits_perfram./N_fram
+    semilogy(SNR_dB, err_ber_fram_2d_AFT,'-*','LineWidth',2);
+    title(sprintf(['N = ' num2str(N) ', M = ' num2str(M) ', ' num2str(M_mod) 'QAM']))
+    legend('2d AFT')
     ylabel('BER'); xlabel('SNR in dB');grid on
     hold on
 end
 if enable_AFT
     err_ber_fram_AFT = err_ber_AFT/N_bits_perfram./N_fram
     semilogy(SNR_dB, err_ber_fram_AFT,'-*','LineWidth',2);
+    legend('1d AFT')
 end
-if enable_OTFS_LMMSE
-    legend('OTFS MMSE', 'AFT');
-else
-    legend('OTFS Message Passing', 'AFT');
-end
+legend('OTFS', '2d AFT', '1d AFT')
+% if enable_OTFS_LMMSE
+%     legend('OTFS MMSE', 'AFT');
+% else
+%     legend('OTFS Message Passing', 'AFT');
+% end
 toc
